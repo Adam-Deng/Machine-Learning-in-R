@@ -1,0 +1,11 @@
+"0","knitr::opts_chunk$set(echo = TRUE)"
+"2","Warning messages:
+"
+"2","1: "
+"2","In is.na(x) :"
+"2"," is.na() applied to non-(list or vector) of type 'NULL'
+"
+"2","2: "
+"2","In is.na(x) :"
+"2"," is.na() applied to non-(list or vector) of type 'NULL'
+"

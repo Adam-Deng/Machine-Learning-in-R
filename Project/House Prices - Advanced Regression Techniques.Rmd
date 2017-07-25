@@ -1,0 +1,368 @@
+---
+title: 'House Prices: Advanced Regression Techniques'
+author: "Lei Deng, STAT 6620, ti7597"
+date: "June 1, 2017"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Step 1 - Colleting data
+  
+  "House Prices: Advanced Regression Techniques" is a competition in the kaggle website, it is recommended as the "training session" for data science students who just have completed some classes in machine learning basics, and have some experienc with R or Python, to expand their skill sets before they are formally trying a featured competition in kaggle.
+    
+  The data gaven in this competition has already been seperated into the training data set, and test data set. There are 79 explanatory variables, including the number of bedrooms, lot size, lot shape, etc., describing almost every aspect of residential homes in Ames, Iowa. The goal is developing the prediction model to predict the final price of each home.
+
+```{r}
+# load the requried library
+library(Amelia)
+library(GGally)
+library(labeling)
+library(ggplot2)
+library(corrplot)
+library(randomForest)
+library(caret)
+library(gbm)
+
+# read the data to R
+train.data<-read.csv("train.csv")
+test.data<-read.csv("test.csv")
+```
+
+## Step 2 - Exploring and preparing the data
+  
+  The first thing is to investigate the data to get familiar with it, and do some exploratory data analysis.
+  
+```{r}
+# check the structure of the data
+str(train.data)
+str(test.data)
+```
+  There are 81 variables and 1460 observations in the train data set; 80 variables and 1459 observations in the test data set. The column "SalePrice" is missing in the test data set, which is the value we need to predict based on the prediction model we developed.
+  
+  Because the "SalePrice" in the test data set is missing, it is not appropriate for the project, since one of the guidline in the project said that "present one or two specific predictions made from the test data, state whether the predcitions were correct or not", we can't compare the predictions without the original "SalePrice" column in the data set, so for this project, I'm using the train data set only, and split the data into the train data, and test data for my project.
+  
+  The next step is to getting familiar with the train data set. We can see that there are NAs (missing value) in some variables in the train data set, for example, "Alley", "FireplaceQu", "PoolQC" etc. We need to take a loot and decide how to deal with the missing values for each variables.
+  
+  Let's see the percentage of missing values for each variables.
+
+```{r}
+# rename the original train data set to reduce the confusion
+new.data<-train.data
+# list the percentage of missing values in each variables
+miss.value<-sort(sapply(new.data,function(x) sum(is.na(x))/nrow(new.data)*100),decreasing = TRUE)
+miss.value[miss.value>0]
+```
+  We can see that 99.52% of data is missing in PoolQC variable, 96.30% of data is missing in MiscFeature, 93.78% of data is missing in Alley, etc. 
+  
+  Let's see the summary statistical result for the variables have missing values
+  
+```{r}
+summary(new.data[,names(miss.value)[miss.value>0]])
+```
+
+  The rule of thumb I'm using here is to drop any variables have missing values more than 75% of its data, and then fix other variables have missing values less then 75% of its data case by case.
+
+```{r}
+# drop the variables have missing value more than 75% of its data
+new.data <-
+  new.data[, -match(c("PoolQC", "MiscFeature", "Alley", "Fence", "FireplaceQu"),
+                    names(new.data))]
+```
+
+  Based on the variables descrition file, we can see that some of the variables have missing values is because there variables are relevant to another variable, if that variable is missing, then these relevant variables are also missing. For example, if the house doesn't have a garage, then "GarageType", "garageYrBlt" etc. are missing; the same ruls can be found for basement variable.
+  
+  Since there are not so many missing values in these variables, I'm using "None" to replace the missing values.
+
+```{r}
+garage <-
+  c("GarageType", "GarageFinish", "GarageQual", "GarageCond")
+basement <-
+  c("BsmtExposure",
+    "BsmtFinType2",
+    "BsmtQual",
+    "BsmtCond",
+    "BsmtFinType1")
+for (x in c(garage, basement)) {
+  new.data[[x]] <-
+    factor(new.data[[x]], levels = c(levels(new.data[[x]]), c('None')))
+  new.data[[x]][is.na(new.data[[x]])] <- "None"
+}
+```
+
+  "GarageYrBlt" is the year of the garage, I'm using the building year of the house to replace the missing value, assuming that the garage is not build after the house.
+  
+```{r}
+new.data$GarageYrBlt[is.na(new.data$GarageYrBlt)] <-
+  new.data$YearBuilt[is.na(new.data$GarageYrBlt)]
+```
+
+  "LotFrontage" is the distance between the house and the street, I'm using the median value of this variable to replace the missing value since it is a numeric value.
+  
+```{r}
+new.data$LotFrontage[is.na(new.data$LotFrontage)] <-
+  median(new.data$LotFrontage, na.rm = T)
+```
+
+  "MasVnrType" is the Masonry veneer type, use None to replace the missing value; "MasVnrArea" is the Masonry veneer area in square feet, for the missing value, use 0 to replace it since it is the monetary value of the "MasVnrType".
+
+```{r}
+new.data[["MasVnrType"]][is.na(new.data[["MasVnrType"]])] <- "None"
+new.data[["MasVnrArea"]][is.na(new.data[["MasVnrArea"]])] <- 0
+```
+
+  There is only 1 missing value in "Electrical", use the most frequent level to replace it. 
+  
+```{r}
+new.data[["Electrical"]][is.na(new.data[["Electrical"]])] <-
+  levels(new.data[["Electrical"]])[which.max(table(new.data[["Electrical"]]))]
+```
+
+  Let's see if there is still any missing values in the data set now
+
+```{r}
+colSums(sapply(new.data, is.na))
+```
+
+  Visualization for the missing data.
+
+```{r}
+missmap(new.data, main = "Missing values vs observed")
+```
+
+  We can see that, there are no missing values in the data set now.
+  
+  Next step, we can see the summary statistical analysis of the data set without any missing values.
+
+```{r}
+summary(new.data)
+```
+
+  Since the original data is already radomized, so I'm simply seperate the first 75% of the data to be the training data set, and the rest of the 25% of the data to be the test data set.
+  
+  For our project, we don't need to use the "ID" variable, so we will drop this variable before we split the data.
+  
+```{r}
+new.data$Id<-NULL
+index<-sample(1:nrow(new.data),as.integer(0.75*nrow(new.data)))
+train<-new.data[index,]
+test<-new.data[-index,]
+```
+
+  Let's see some visulization about the training data set. First, let's see the distribution of the numeric variables with density plots.
+
+```{r}
+for (col in colnames(train)){
+  if(is.numeric(train[,col])){
+    plot(density(train[,col]), main=col)
+  }
+}
+```
+
+  Lots of numeric variables are right skew, and have significant density near 0, which indicate that certain features are only present in subset of homes. And "SalePrice" seems to be roughtly normal, even it skew to the right, and there are numbers of homes sell signigicantly higher than the average price.
+  
+  Next step, let's find out what kinds of variables are higly correaletd to the SalePrice. Let's list the variables have a correalation with SalePrice with an absolute value of 0.5 or higher.
+
+```{r}
+for (col in colnames(train)){
+  if(is.numeric(train[,col])){
+    if( abs(cor(train[,col],train$SalePrice)) > 0.5){
+      print(col)
+      print( cor(train[,col],train$SalePrice) )
+    }
+  }
+}
+```
+
+  We can see that, there are several variables are high relate to the saleprice, the "OverallQual" (Rates the overall material and finish of the house),  "GrLivArea" (Above grade (ground) living area square feet), "GarageCars" (Size of garage in car capacity) are the 3 higest one. These variables are likely important for predicting sale price.   
+
+  The same rule here, let's then list the vatiables have a correalation with SalePrice with an absolute value of 0.1 or lower.
+
+```{r}
+for (col in colnames(train)){
+  if(is.numeric(train[,col])){
+    if( abs(cor(train[,col],train$SalePrice)) < 0.1){
+      print(col)
+      print( cor(train[,col],train$SalePrice) )
+    }
+  }
+}
+```
+
+  One of the intersting thing I found here, is "OverallCond" (Rates the overall condition of the house) doesn't have strong correlation to the sale price, but "OverallQual" (Rates the overall material and finish of the house) does. I think people might don't care about the house condition, because they can always remodel it?
+
+  Let's then visualize the corelation matrix.
+
+```{r}
+correlations <- cor(train[, sapply(train, is.numeric)])
+corr.SalePrice <-
+  as.matrix(sort(correlations[, 'SalePrice'], decreasing = TRUE))
+
+corr.idx <-
+  names(which(apply(corr.SalePrice, 1, function(x)
+    (x > 0.5 | x < -0.5))))
+library(corrplot)
+corrplot(
+  as.matrix(correlations[corr.idx, corr.idx]),
+  type = 'upper',
+  method = 'color',
+  addCoef.col = 'black',
+  tl.cex = .7,
+  cl.cex = .7,
+  number.cex = .7
+)
+```
+
+  We list all the 11 variables with correlation with Slarprice >0.5 here, we will use these variables to develop a model. They are:
+  OverallQual - Rates the overall material and finish of the house;
+  GrLivArea - Above grade (ground) living area square feet;
+  GarageCars -  Size of garage in car capacity;
+  GarageArea - Size of garage in square feet;
+  TotalBsmtSF - Total square feet of basement area;
+  X1stFlrSF - First Floor square feet (There is missmatch in the data description file here);
+  FullBath - Full bathrooms above grade;
+  TotRmsAbvGrd - Total rooms above grade (does not include bathrooms);
+  YearBuilt - Original construction date;
+  YearRemodAdd - Remodel date (same as construction date if no remodeling or additions);
+  GarageYrBlt - Year garage was built
+
+  Then we plot these variables with salesprice to get the visulizaton.
+
+```{r}
+# the data visulization code are refrenced from https://www.kaggle.com/tannercarbonati/detailed-data-analysis-ensemble-modeling
+
+lm.plt <- function(data, mapping, ...){
+  plt <- ggplot(data = data, mapping = mapping) + 
+    geom_point(shape = 20, alpha = 0.7, color = 'darkseagreen') +
+    geom_smooth(method=loess, fill="red", color="red") +
+    geom_smooth(method=lm, fill="blue", color="blue") +
+    theme_minimal()
+  return(plt)
+}
+
+ggpairs(train, corr.idx[1:11], lower = list(continuous = lm.plt))
+```
+
+  The blue lines in the scatter plots are the simple linear regression fit, the red lines are the local polynomial fit. 
+
+
+## Step3 - Training a model on the data
+
+  There are lots of variables in the data set here, but not every variables have strong correlation with the sela price, so the first thinking of traning a linear regression model is to use all the 11 high correlation variables. Let's see how it works:
+
+```{r}
+lm1 <-
+  lm(
+    SalePrice ~ OverallQual + GrLivArea + GarageCars + GarageArea + TotalBsmtSF +
+      X1stFlrSF + FullBath + TotRmsAbvGrd + YearBuilt + YearRemodAdd + GarageYrBlt,
+    train
+  )
+summary(lm1)
+```
+
+  We can see that not all the variables have the significant impact to the sale price, like the "GarageArea", "FullBath", and the "TotRmsAbvGrd". And the Adjusted R-squared is 0.777, which looks not so good.
+  
+  So we drop all the non-significant variables, and then fit the model again:
+
+```{r}
+lm2 <-
+  lm(
+    SalePrice ~ OverallQual + GrLivArea + GarageCars + TotalBsmtSF +
+      X1stFlrSF + YearBuilt + YearRemodAdd + GarageYrBlt,
+    train
+  )
+summary(lm2)
+```
+
+  Even all the virables remain in the model have significant impact on the sale price, but the Adjuested R-squared is 0.7767, which is no different with the first model. We'll use the second model first, then we'll improve the model performance later.
+  
+## step4 - Evaluating model performance
+
+  Let's use the second model to test the test data, see how well the model works:
+
+```{r}
+test.data <- test
+test.data$SalePrice <- NULL
+p <- predict(lm2, test.data)
+summary(p)
+summary(test$SalePrice)
+cor(p, test$SalePrice)
+```
+
+  The correlation here is 0.9025, looks not so bad. But dose the model meet the assumption about the linear regreesion? Let's take a look:
+
+```{r}
+layout(matrix(1:4,2,2))
+plot(lm2)
+```
+
+  We can see there are lots of noising data to effect the model performance. And actually it is not a good model because we manually select the varibales for the model, we can do better to automaticly develop a good model. 
+
+## step5 - Improving model performance
+
+### method 1 - RandomForest
+
+  Let's try to use randomforest method.
+
+```{r}
+m.rf <- randomForest(SalePrice ~ ., data = train)
+m.rf
+```
+
+### method 3 - Gradient Boosting Decision Tree
+
+  Next, let's try to use the GBDT method.
+
+```{r}
+library(gbm)
+ctrl <- trainControl(method = "repeatedcv",
+                     number = 10,
+                     repeats = 10)
+m.gbm <-
+  train(
+    SalePrice ~ .,
+    data = train,
+    method = "gbm",
+    trControl = ctrl
+  )
+m.gbm
+```
+
+## compare the MAE (mean absolute error) among three models
+
+  We'll caculate the mean absolute erroe to see which model is the most acruate one.
+
+```{r}
+# function to calculate the mean absolute error
+MAE <- function(actual, predicted) {
+  mean(abs(actual - predicted))  
+}
+
+p.lm2<-predict(lm2,test.data)
+p.rf<-predict(m.rf,test.data)
+p.gbt<-predict(m.gbm,test.data)
+
+MAE.lm2<-MAE(p.lm2, test$SalePrice)
+MAE.rf<-MAE(p.rf, test$SalePrice)
+MAE.gbt<-MAE(p.gbt,test$SalePrice)
+```
+
+  The samllest value is MAE.rf, we will use Random Forest model to do the final report.
+
+## Final report
+
+  we will use Random Forest model to do the final report. 
+  
+  Present one or two specific predictions made from the test data.
+
+```{r}
+table(p.rf[1:2],test$SalePrice[1:2])
+```
+
+  The data examples are 129900, 200000, while the predictions are 151479.13, 218736.00. They are not correct.
+  
+## Things learned from the data
+
+  The model feature selection, model pefermance improvement, the algorithm selected to develop the model, are all essential to develop a good model to do the better prediction. However, EDA (exploratory data analysis), data wrangling, get deep and clear insight about the data, are even more inportant to the model development, because without appropriately data cleaning and data preparation, the model developed based on the raw data is not quite useful, sometimes it is not the correct model.

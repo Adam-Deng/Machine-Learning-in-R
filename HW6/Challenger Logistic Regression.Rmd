@@ -1,0 +1,101 @@
+---
+title: "Challenger Logistic Regression"
+author: "Lei Deng, ti7597, STAT6620"
+date: "May 18, 2017"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Step 1 - Colleting data
+
+Read the data to the R
+
+```{r}
+# load the necessary library
+library(Amelia)
+library(ROCR)
+
+launch <- read.csv("challenger.csv")
+```
+
+## Step 2 - Exploring and preparing the data
+
+```{r}
+# examine the launch data
+str(launch)
+
+# First recode the distress_ct variable into 0 and 1, making 1 to represent at least one failure during a launch.
+
+launch$distress_ct = ifelse(launch$distress_ct<1,0,1)
+launch$distress_ct
+
+# set up trainning and test data sets
+
+indx = sample(1:nrow(launch), as.integer(0.9*nrow(launch)))
+indx
+
+launch_train = launch[indx,]
+launch_test = launch[-indx,]
+
+launch_train_labels = launch[indx,4]
+launch_test_labels = launch[-indx,4]   
+
+# Check if there are any missing values
+
+missmap(launch, main = "Missing values vs observed")
+
+# number of missing values in each column
+
+sapply(launch,function(x) sum(is.na(x)))
+
+# number of unique values in each column
+
+sapply(launch, function(x) length(unique(x)))
+```
+
+## Step3 - Training a model on the data
+
+```{r}
+# fit the logistic regression model, with all predictor variables
+
+model <- glm(distress_ct ~.,family=binomial(link='logit'),data=launch_train)
+model
+
+summary(model)
+
+anova(model, test="Chisq")
+```
+
+## step4 - Evaluating model performance
+
+```{r}
+# check Accuracy
+
+fitted.results <- predict(model,newdata=launch_test,type='response')
+fitted.results <- ifelse(fitted.results > 0.5,1,0)
+
+misClasificError <- mean(fitted.results != launch_test$distress_ct)
+print(paste('Accuracy',1-misClasificError))
+```
+
+## step5 - Improving model performance
+
+```{r}
+# Because this data set is so small, it is possible that the test data set
+# does not contain both 0 and 1 values.  If this happens the code will not
+# run.  And since the test data set is so small the ROC is not useful here
+# but the code is provided.
+
+p <- predict(model, newdata=launch_test, type="response")
+pr <- prediction(p, launch_test$distress_ct)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf)
+
+auc <- performance(pr, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+```
+

@@ -1,0 +1,10 @@
+"0","for (col in colnames(train)){"
+"0","  if(is.numeric(train[,col])){"
+"0","    if( abs(cor(train[,col],train$SalePrice)) > 0.5){"
+"0","      print(col)"
+"0","      print( cor(train[,col],train$SalePrice) )"
+"0","    }"
+"0","  }"
+"0","}"
+"2","Error in colnames(train) : object 'train' not found
+"

@@ -1,0 +1,83 @@
+---
+title: "Credit Random Forest"
+author: "Lei Deng, ti7597, STAT6620"
+date: "May 18, 2017"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Step 1 - Colleting data
+
+Read the data to the R
+
+```{r}
+# load the necessary library
+library(caret)
+library(randomForest)
+library(Amelia)
+
+
+credit <- read.csv("credit.csv")
+```
+
+## Step 2 - Exploring and preparing the data
+
+```{r}
+str(credit)
+
+# Check if there are any missing values
+
+missmap(credit, main = "Missing values vs observed")
+
+# number of missing values in each column
+
+sapply(credit,function(x) sum(is.na(x)))
+
+# number of unique values in each column
+
+sapply(credit, function(x) length(unique(x)))
+```
+
+## Step3 - Training a model on the data
+
+```{r}
+set.seed(300)
+rf <- randomForest(default ~ ., data = credit)
+rf
+```
+
+## step4 - Evaluating model performance
+
+```{r}
+ctrl <- trainControl(method = "repeatedcv",
+                     number = 10, repeats = 10)
+
+# auto-tune a random forest
+grid_rf <- expand.grid(.mtry = c(2, 4, 8, 16))
+
+set.seed(300)
+m_rf <- train(default ~ ., data = credit, method = "rf",
+              metric = "Kappa", trControl = ctrl,
+              tuneGrid = grid_rf)
+m_rf
+```
+
+## step5 - Improving model performance
+
+```{r}
+# auto-tune a boosted C5.0 decision tree
+grid_c50 <- expand.grid(.model = "tree",
+                        .trials = c(10, 20, 30, 40),
+                        .winnow = "FALSE")
+
+set.seed(300)
+m_c50 <- train(default ~ ., data = credit, method = "C5.0",
+                metric = "Kappa", trControl = ctrl,
+               tuneGrid = grid_c50)
+m_c50
+```
+
+
